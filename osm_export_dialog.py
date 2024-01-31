@@ -26,6 +26,7 @@ import os
 
 from qgis.PyQt import uic
 from qgis.PyQt import QtWidgets
+from qgis.PyQt.QtWidgets import QDialog, QMessageBox, QPushButton
 
 # This loads your .ui file so that PyQt can populate your plugin with the elements from Qt Designer
 FORM_CLASS, _ = uic.loadUiType(os.path.join(
@@ -33,7 +34,7 @@ FORM_CLASS, _ = uic.loadUiType(os.path.join(
 
 
 class OSMExportDialog(QtWidgets.QDialog, FORM_CLASS):
-    def __init__(self, parent=None):
+    def __init__(self, iface, parent=None):
         """Constructor."""
         super(OSMExportDialog, self).__init__(parent)
         # Set up the user interface from Designer through FORM_CLASS.
@@ -42,3 +43,13 @@ class OSMExportDialog(QtWidgets.QDialog, FORM_CLASS):
         # http://qt-project.org/doc/qt-4.8/designer-using-a-ui-file.html
         # #widgets-and-dialogs-with-auto-connect
         self.setupUi(self)
+        self.iface = iface
+
+        # Connect the button click event to the method
+        self.btnShowExtent.clicked.connect(self.show_current_extent)
+
+    def show_current_extent(self): 
+        # Add your code here to calculate and display the current extent
+        extent = self.iface.mapCanvas().extent()
+        QMessageBox.information(
+            None, "Current Extent", f"Current Extent:\n{extent.toString()}", QMessageBox.Ok)
