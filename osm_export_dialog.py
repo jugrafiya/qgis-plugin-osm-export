@@ -27,6 +27,9 @@ import os
 from qgis.PyQt import uic
 from qgis.PyQt import QtWidgets
 from qgis.PyQt.QtWidgets import QDialog, QMessageBox, QPushButton
+from qgis.core import QgsCoordinateTransform, QgsCoordinateReferenceSystem, QgsProject
+import requests
+import overpy
 
 # This loads your .ui file so that PyQt can populate your plugin with the elements from Qt Designer
 FORM_CLASS, _ = uic.loadUiType(os.path.join(
@@ -48,8 +51,57 @@ class OSMExportDialog(QtWidgets.QDialog, FORM_CLASS):
         # Connect the button click event to the method
         self.btnShowExtent.clicked.connect(self.show_current_extent)
 
-    def show_current_extent(self): 
-        # Add your code here to calculate and display the current extent
+    # def show_current_extent(self): 
+    #     # Add your code here to calculate and display the current extent
+    #     extent = self.iface.mapCanvas().extent()
+    #     QMessageBox.information(
+    #         None, "Current Extent", f"Current Extent:\n{extent.toString()}", QMessageBox.Ok)
+
+    def show_current_extent(self):
+        # Get the current map extent
         extent = self.iface.mapCanvas().extent()
+        
+        # Extract the bounding box (minX, minY, maxX, maxY)
+        minX, minY, maxX, maxY = extent.xMinimum(), extent.yMinimum(), extent.xMaximum(), extent.yMaximum()
+
+        # Define the current CRS and the target CRS (WGS84)
+        currentCRS = self.iface.mapCanvas().mapSettings().destinationCrs()
+        wgs84CRS = QgsCoordinateReferenceSystem("EPSG:4326")
+
+        # Initialize the coordinate transformation
+        transform = QgsCoordinateTransform(currentCRS, wgs84CRS, QgsProject.instance())
+
+        # Transform the extent to WGS84
+        wgs84Extent = transform.transformBoundingBox(extent)
+        minX, minY, maxX, maxY = wgs84Extent.xMinimum(), wgs84Extent.yMinimum(), wgs84Extent.xMaximum(), wgs84Extent.yMaximum()
+
+        # Initialize Overpy
+        api = overpy.Overpass()
+
+        # Formulate the Overpass query
+        query = f"""
+        [out:json];
+        (
+        way
+            ["highway"]
+            ({minY},{minX},{maxY},{maxX});
+        );
+        out body;
+        >;
+        out skel qt;
+        """
         QMessageBox.information(
-            None, "Current Extent", f"Current Extent:\n{extent.toString()}", QMessageBox.Ok)
+                None, "Current Extent", f"{str(query)}", QMessageBox.Ok)
+
+        # Execute the query
+        try:
+            result = api.query(query)
+            QMessageBox.information(
+                None, "OSM Data Download", f"Successfully downloaded OSM data for the current extent.", QMessageBox.Ok)
+            # Here you could process the result or save it to a file, etc.
+        except overpy.exception.OverpassTooManyRequests:
+            QMessageBox.warning(
+                None, "OSM Data Download", "Too many requests to Overpass API. Please try again later.", QMessageBox.Ok)
+        except Exception as e:
+            QMessageBox.warning(
+                None, "OSM Data Download", f"An error occurred: {str(e)}", QMessageBox.Ok)
