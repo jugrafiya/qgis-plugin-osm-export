@@ -27,7 +27,8 @@ import os
 from qgis.PyQt import uic
 from qgis.PyQt import QtWidgets
 from qgis.PyQt.QtWidgets import QDialog, QMessageBox, QPushButton
-from qgis.core import QgsCoordinateTransform, QgsCoordinateReferenceSystem, QgsProject
+from qgis.core import QgsCoordinateTransform, QgsCoordinateReferenceSystem, QgsProject, QgsPointXY, QgsGeometry, QgsFeature, QgsVectorLayer, QgsField, QgsWkbTypes
+from PyQt5.QtCore import QVariant
 import requests
 import overpy
 
@@ -60,6 +61,27 @@ class OSMExportDialog(QtWidgets.QDialog, FORM_CLASS):
     def show_current_extent(self):
         # Get the current map extent
         extent = self.iface.mapCanvas().extent()
+
+        # Calculate the center of the extent
+        center_x = (extent.xMinimum() + extent.xMaximum()) / 2
+        center_y = (extent.yMinimum() + extent.yMaximum()) / 2
+
+        # Create a point at the center
+        center_point = QgsPointXY(center_x, center_y)
+
+        # Check if the map is already in a geographic coordinate system
+        map_crs = self.iface.mapCanvas().mapSettings().destinationCrs()
+        geo_crs = QgsCoordinateReferenceSystem('EPSG:4326')  # WGS 84
+
+        # Transform the center point to geographic coordinates if necessary
+        if map_crs != geo_crs:
+            transform = QgsCoordinateTransform(map_crs, geo_crs, QgsProject.instance())
+            center_point = transform.transform(center_point)
+
+        # Calculate the UTM zone from the longitude
+        utm_zone = int((center_point.x() + 180) / 6) + 1
+
+        # print(f'The UTM zone is: {utm_zone}')
         
         # Extract the bounding box (minX, minY, maxX, maxY)
         minX, minY, maxX, maxY = extent.xMinimum(), extent.yMinimum(), extent.xMaximum(), extent.yMaximum()
@@ -91,11 +113,52 @@ class OSMExportDialog(QtWidgets.QDialog, FORM_CLASS):
         out skel qt;
         """
         QMessageBox.information(
-                None, "Current Extent", f"{str(query)}", QMessageBox.Ok)
+                None, "UTM Zone", f"{str(utm_zone)}", QMessageBox.Ok)
 
         # Execute the query
         try:
             result = api.query(query)
+
+            # Step 2: Process the response and prepare QGIS layers
+            # Create an empty line layer
+            line_layer = QgsVectorLayer("LineString?crs=EPSG:4326", "OSM Lines", "memory")
+            line_pr = line_layer.dataProvider()
+            line_pr.addAttributes([QgsField("id", QVariant.String)])
+            line_layer.updateFields()
+
+            # Create an empty polygon layer
+            polygon_layer = QgsVectorLayer("Polygon?crs=EPSG:4326", "OSM Polygons", "memory")
+            polygon_pr = polygon_layer.dataProvider()
+            polygon_pr.addAttributes([QgsField("id", QVariant.String)])
+            polygon_layer.updateFields()
+
+            # Step 3: Add features to the layers
+            for way in result.ways:
+                # Create a new feature
+                feat = QgsFeature()
+                # Set feature attributes (e.g., id)
+                feat.setAttributes([str(way.id)])
+                
+                # Parse geometry
+                points = [QgsPointXY(node.lon, node.lat) for node in way.nodes]
+                
+                if way.nodes[0] == way.nodes[-1]:  # Manually check if the way is closed
+                    geom = QgsGeometry.fromPolygonXY([[points]])
+                    polygon_pr.addFeatures([feat])
+                    feat.setGeometry(geom)
+                else:
+                    geom = QgsGeometry.fromPolylineXY(points)
+                    line_pr.addFeatures([feat])
+                    feat.setGeometry(geom)
+
+            # Update the layer's extent when new features have been added
+            line_layer.updateExtents()
+            polygon_layer.updateExtents()
+
+            # Step 4: Add layers to the QGIS interface
+            QgsProject.instance().addMapLayer(line_layer)
+            QgsProject.instance().addMapLayer(polygon_layer)
+
             QMessageBox.information(
                 None, "OSM Data Download", f"Successfully downloaded OSM data for the current extent.", QMessageBox.Ok)
             # Here you could process the result or save it to a file, etc.
