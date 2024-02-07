@@ -27,10 +27,11 @@ import os
 from qgis.PyQt import uic
 from qgis.PyQt import QtWidgets
 from qgis.PyQt.QtWidgets import QDialog, QMessageBox, QPushButton
-from qgis.core import QgsCoordinateTransform, QgsCoordinateReferenceSystem, QgsProject, QgsPointXY, QgsGeometry, QgsFeature, QgsVectorLayer, QgsField, QgsWkbTypes
+from qgis.core import QgsCoordinateTransform, QgsCoordinateReferenceSystem, QgsProject, QgsPointXY, QgsGeometry, QgsFeature, QgsVectorLayer, QgsField, QgsWkbTypes, QgsProcessingFeedback, QgsVectorFileWriter
 from PyQt5.QtCore import QVariant
 import requests
 import overpy
+import processing
 
 # This loads your .ui file so that PyQt can populate your plugin with the elements from Qt Designer
 FORM_CLASS, _ = uic.loadUiType(os.path.join(
@@ -41,22 +42,25 @@ class OSMExportDialog(QtWidgets.QDialog, FORM_CLASS):
     def __init__(self, iface, parent=None):
         """Constructor."""
         super(OSMExportDialog, self).__init__(parent)
-        # Set up the user interface from Designer through FORM_CLASS.
-        # After self.setupUi() you can access any designer object by doing
-        # self.<objectname>, and you can use autoconnect slots - see
-        # http://qt-project.org/doc/qt-4.8/designer-using-a-ui-file.html
-        # #widgets-and-dialogs-with-auto-connect
+
         self.setupUi(self)
         self.iface = iface
 
         # Connect the button click event to the method
         self.btnShowExtent.clicked.connect(self.show_current_extent)
 
-    # def show_current_extent(self): 
-    #     # Add your code here to calculate and display the current extent
-    #     extent = self.iface.mapCanvas().extent()
-    #     QMessageBox.information(
-    #         None, "Current Extent", f"Current Extent:\n{extent.toString()}", QMessageBox.Ok)
+    def download_osm_data(self, in_extent):
+        params = {
+            'EXTENT': in_extent,  # [minx, miny, maxx, maxy]
+            'OUTPUT_POINTS': 'OUTPUT_POINTS',
+            'OUTPUT_LINES': 'OUTPUT_LINES',
+            'OUTPUT_MULTIPOLYGONS': 'OUTPUT_MULTIPOLYGONS'
+        }
+        feedback = QgsProcessingFeedback()
+        
+        result = processing.run('quickosm:downloadosmdataextentquery', params, feedback=feedback)
+
+        return result
 
     def show_current_extent(self):
         # Get the current map extent
@@ -81,90 +85,33 @@ class OSMExportDialog(QtWidgets.QDialog, FORM_CLASS):
         # Calculate the UTM zone from the longitude
         utm_zone = int((center_point.x() + 180) / 6) + 1
 
-        # print(f'The UTM zone is: {utm_zone}')
-        
-        # Extract the bounding box (minX, minY, maxX, maxY)
-        minX, minY, maxX, maxY = extent.xMinimum(), extent.yMinimum(), extent.xMaximum(), extent.yMaximum()
-
-        # Define the current CRS and the target CRS (WGS84)
-        currentCRS = self.iface.mapCanvas().mapSettings().destinationCrs()
-        wgs84CRS = QgsCoordinateReferenceSystem("EPSG:4326")
-
-        # Initialize the coordinate transformation
-        transform = QgsCoordinateTransform(currentCRS, wgs84CRS, QgsProject.instance())
-
-        # Transform the extent to WGS84
-        wgs84Extent = transform.transformBoundingBox(extent)
-        minX, minY, maxX, maxY = wgs84Extent.xMinimum(), wgs84Extent.yMinimum(), wgs84Extent.xMaximum(), wgs84Extent.yMaximum()
-
-        # Initialize Overpy
-        api = overpy.Overpass()
-
-        # Formulate the Overpass query
-        query = f"""
-        [out:json];
-        (
-        way
-            ["highway"]
-            ({minY},{minX},{maxY},{maxX});
-        );
-        out body;
-        >;
-        out skel qt;
-        """
-        QMessageBox.information(
-                None, "UTM Zone", f"{str(utm_zone)}", QMessageBox.Ok)
-
-        # Execute the query
         try:
-            result = api.query(query)
+            # Use the above funtion to download and display OSM data
+            osmdata = self.download_osm_data(extent)
 
-            # Step 2: Process the response and prepare QGIS layers
-            # Create an empty line layer
-            line_layer = QgsVectorLayer("LineString?crs=EPSG:4326", "OSM Lines", "memory")
-            line_pr = line_layer.dataProvider()
-            line_pr.addAttributes([QgsField("id", QVariant.String)])
-            line_layer.updateFields()
+            for output in ['OUTPUT_LINES', 'OUTPUT_MULTIPOLYGONS']:
+                layer = osmdata[output]
+                if layer is not None:
+                    # Transform the layer to the UTM zone
+                    # transform = QgsCoordinateTransform(geo_crs, QgsCoordinateReferenceSystem(f'EPSG:326{utm_zone}'), QgsProject.instance())
+                    # layer.setCrs(QgsCoordinateReferenceSystem(f'EPSG:326{utm_zone}'))  # Set the CRS for the layer
 
-            # Create an empty polygon layer
-            polygon_layer = QgsVectorLayer("Polygon?crs=EPSG:4326", "OSM Polygons", "memory")
-            polygon_pr = polygon_layer.dataProvider()
-            polygon_pr.addAttributes([QgsField("id", QVariant.String)])
-            polygon_layer.updateFields()
+                    # Add the transformed layer to the map
+                    QgsProject.instance().addMapLayer(layer)
 
-            # Step 3: Add features to the layers
-            for way in result.ways:
-                # Create a new feature
-                feat = QgsFeature()
-                # Set feature attributes (e.g., id)
-                feat.setAttributes([str(way.id)])
-                
-                # Parse geometry
-                points = [QgsPointXY(node.lon, node.lat) for node in way.nodes]
-                
-                if way.nodes[0] == way.nodes[-1]:  # Manually check if the way is closed
-                    geom = QgsGeometry.fromPolygonXY([[points]])
-                    polygon_pr.addFeatures([feat])
-                    feat.setGeometry(geom)
-                else:
-                    geom = QgsGeometry.fromPolylineXY(points)
-                    line_pr.addFeatures([feat])
-                    feat.setGeometry(geom)
-
-            # Update the layer's extent when new features have been added
-            line_layer.updateExtents()
-            polygon_layer.updateExtents()
-
-            # Step 4: Add layers to the QGIS interface
-            QgsProject.instance().addMapLayer(line_layer)
-            QgsProject.instance().addMapLayer(polygon_layer)
-
+                    # Export the transformed layers to .dxf files to D: drive
+                    path = f'D:/osm_{output}.dxf'
+                    QgsVectorFileWriter.writeAsVectorFormat(layer, path, 'UTF-8', layer.crs(), 'DXF', layerOptions=['ENCODING=UTF-8'])
+            
             QMessageBox.information(
                 None, "OSM Data Download", f"Successfully downloaded OSM data for the current extent.", QMessageBox.Ok)
             # Here you could process the result or save it to a file, etc.
+
         except overpy.exception.OverpassTooManyRequests:
             QMessageBox.warning(
                 None, "OSM Data Download", "Too many requests to Overpass API. Please try again later.", QMessageBox.Ok)
         except Exception as e:
             QMessageBox.warning(
                 None, "OSM Data Download", f"An error occurred: {str(e)}", QMessageBox.Ok)
+
+    

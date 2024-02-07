@@ -22,7 +22,7 @@
         </rect>
     </property>
     <property name="text">
-        <string>Show Current Extent</string>
+        <string>Export OSM Data</string>
     </property>
   </widget>
   <widget class="QDialogButtonBox" name="button_box" >
