@@ -58,65 +58,29 @@ class OSMExportDialog(QtWidgets.QDialog, FORM_CLASS):
         [out:json];
         (
         way({bbox});
-        relation({bbox});
         );
         (._;>;);
         out body;
         """
 
-
         api = overpy.Overpass()
         result = api.query(query)
         # Create a memory layer for ways (lines)
-        way_layer = QgsVectorLayer("LineString?crs=epsg:4326", "OSM Ways", "memory")
+        way_layer = QgsVectorLayer("LineString?crs=epsg:4326", "Output", "memory")
         way_prov = way_layer.dataProvider()
         way_prov.addAttributes([QgsField("id", QVariant.String),
-                                QgsField("highway", QVariant.String),
                                 QgsField("name", QVariant.String)])
         way_layer.updateFields()
-
-        # Create a memory layer for relations (polygons)
-        relation_layer = QgsVectorLayer("MultiPolygon?crs=epsg:4326", "OSM Relations", "memory")
-        relation_prov = relation_layer.dataProvider()
-        relation_prov.addAttributes([QgsField("id", QVariant.String),
-                                    # QgsField("type", QVariant.String),
-                                    QgsField("name", QVariant.String)])
-        relation_layer.updateFields()
-
         
         # Process ways as lines
         for way in result.ways:
             points = [QgsPointXY(float(node.lon), float(node.lat)) for node in way.nodes]
             feat = QgsFeature()
             feat.setGeometry(QgsGeometry.fromPolylineXY(points))
-            feat.setAttributes([str(way.id), way.tags.get("highway", ""), way.tags.get("name", "")])
+            feat.setAttributes([str(way.id), way.tags.get("name", "")])
             way_prov.addFeature(feat)
-        print("Field Added.")
-        # Process relations as polygons
-        for relation in result.relations:
-            outer_ring = []
-            for member in relation.members:
-                print(member.role, "  #  ")
-                # if member.role == "outer":
-                way = result.get_way(member.ref)
-                outer_ring.extend([QgsPointXY(float(node.lon), float(node.lat)) for node in way.nodes])
-            if outer_ring:  # Check if outer ring is not empty
-                # Close the polygon if it's not closed
-                if outer_ring[0] != outer_ring[-1]:
-                    outer_ring.append(outer_ring[0])
-                feat = QgsFeature()
-                feat.setGeometry(QgsGeometry.fromPolygonXY([outer_ring]))
-                feat.setAttributes([str(relation.id), relation.tags.get("name", "")])
-                relation_prov.addFeature(feat)
-
-
-        return {"WAY_LAYER": way_layer, "RELATION_LAYER": relation_layer}
-
-        # Add the layers to the map
-        QgsProject.instance().addMapLayer(way_layer)
-        QgsProject.instance().addMapLayer(relation_layer)
-
-        return {"WAY_LAYER": way_layer, "RELATION_LAYER": relation_layer}
+            
+        return {"WAY_LAYER": way_layer}
 
     def show_current_extent(self):
         # Get the current map extent
@@ -151,11 +115,9 @@ class OSMExportDialog(QtWidgets.QDialog, FORM_CLASS):
             osmdata = self.download_osm_data(extent_84)
 
             way_layer = osmdata["WAY_LAYER"]
-            relation_layer = osmdata["RELATION_LAYER"]
 
             # Add the layers to the map
             QgsProject.instance().addMapLayer(osmdata["WAY_LAYER"])
-            QgsProject.instance().addMapLayer(osmdata["RELATION_LAYER"])
 
 
             QMessageBox.information(
