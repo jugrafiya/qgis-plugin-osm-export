@@ -27,7 +27,7 @@ import os
 from qgis.PyQt import uic
 from qgis.PyQt import QtWidgets
 from qgis.PyQt.QtWidgets import QDialog, QMessageBox, QPushButton
-from qgis.core import QgsCoordinateTransform, QgsCoordinateReferenceSystem, QgsProject, QgsPointXY, QgsGeometry, QgsFeature, QgsVectorLayer, QgsField, QgsWkbTypes, QgsProcessingFeedback, QgsVectorFileWriter
+from qgis.core import QgsCoordinateTransform, QgsCoordinateReferenceSystem, QgsProject, QgsPointXY, QgsGeometry, QgsFeature, QgsVectorLayer, QgsField, QgsWkbTypes, QgsProcessingFeedback, QgsVectorFileWriter, QgsCoordinateTransformContext
 from PyQt5.QtCore import QVariant
 import requests
 import overpy
@@ -68,8 +68,6 @@ class OSMExportDialog(QtWidgets.QDialog, FORM_CLASS):
         # Create a memory layer for ways (lines)
         way_layer = QgsVectorLayer("LineString?crs=epsg:4326", "Output", "memory")
         way_prov = way_layer.dataProvider()
-        way_prov.addAttributes([QgsField("id", QVariant.String),
-                                QgsField("name", QVariant.String)])
         way_layer.updateFields()
         
         # Process ways as lines
@@ -77,7 +75,6 @@ class OSMExportDialog(QtWidgets.QDialog, FORM_CLASS):
             points = [QgsPointXY(float(node.lon), float(node.lat)) for node in way.nodes]
             feat = QgsFeature()
             feat.setGeometry(QgsGeometry.fromPolylineXY(points))
-            feat.setAttributes([str(way.id), way.tags.get("name", "")])
             way_prov.addFeature(feat)
             
         return {"WAY_LAYER": way_layer}
@@ -110,25 +107,67 @@ class OSMExportDialog(QtWidgets.QDialog, FORM_CLASS):
         extent_84 = transform.transform(extent)
 
 
-        try:
-            # Use the above funtion to dWownload and display OSM data
-            osmdata = self.download_osm_data(extent_84)
+        # try:
+        # Use the above funtion to dWownload and display OSM data
+        osmdata = self.download_osm_data(extent_84)
 
-            way_layer = osmdata["WAY_LAYER"]
+        way_layer = osmdata["WAY_LAYER"]
 
-            # Add the layers to the map
-            QgsProject.instance().addMapLayer(osmdata["WAY_LAYER"])
+        # Add the layers to the map
+        QgsProject.instance().addMapLayer(osmdata["WAY_LAYER"])
+
+        # Export the way_layer to .dxf file and add it to the map
+        layer_name = "Output"
+        output_file = "D:/temp/output.dxf"
+        layer = QgsProject.instance().mapLayersByName(layer_name)[0] if QgsProject.instance().mapLayersByName(layer_name) else None
+
+        if not layer:
+            print(f"Layer '{layer_name}' not found.")
+            return
+
+        # Set the CRS to utm_zone
+        crs = QgsCoordinateReferenceSystem(f'EPSG:{32600 + utm_zone}')
+
+        # Set the options for the DXF export
+        options = QgsVectorFileWriter.SaveVectorOptions()
+        options.driverName = "DXF"
+        options.fileEncoding = "UTF-8"
+        options.dstCRS = crs
+        options.attributes = []
+
+        # Perform the export
+        error = QgsVectorFileWriter.writeAsVectorFormatV3(
+            layer=layer,
+            fileName=output_file,
+            transformContext=QgsProject.instance().transformContext(),
+            options=options
+        )
+
+        if error[0] == QgsVectorFileWriter.NoError:
+            print(f"Layer '{layer_name}' successfully exported to '{output_file}'.")
+        else:
+            print(f"Failed to export '{layer_name}': {error}")
+
+        # load the dxf file to the map
+        layer = QgsVectorLayer(output_file, "Output-dxf", "ogr")
+        QgsProject.instance().addMapLayer(layer)
+
+        # if result == QgsVectorFileWriter.NoError:
+        #     print(f"Layer '{layer_name}' successfully exported to '{output_file}'.")
+        # else:
+        #     print(f"Failed to export '{layer_name}': {error}")
 
 
-            QMessageBox.information(
-                None, "OSM Data Download", f"Successfully downloaded OSM data for the current extent.", QMessageBox.Ok)
-            # Here you could process the result or save it to a file, etc.
 
-        except overpy.exception.OverpassTooManyRequests:
-            QMessageBox.warning(
-                None, "OSM Data Download", "Too many requests to Overpass API. Please try again later.", QMessageBox.Ok)
-        except Exception as e:
-            QMessageBox.warning(
-                None, "OSM Data Download", f"An error occurred: {str(e)}", QMessageBox.Ok)
+        QMessageBox.information(
+            None, "OSM Data Download", f"Successfully downloaded OSM data for the current extent.", QMessageBox.Ok)
+        # Here you could process the result or save it to a file, etc.
+
+        # except overpy.exception.OverpassTooManyRequests:
+        #     QMessageBox.warning(
+        #         None, "OSM Data Download", "Too many requests to Overpass API. Please try again later.", QMessageBox.Ok)
+        # except Exception as e:
+        #     QMessageBox.warning(
+        #         None, "OSM Data Download", f"An error occurred: {str(e)}", QMessageBox.Ok)
 
     
