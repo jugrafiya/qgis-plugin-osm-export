@@ -175,6 +175,11 @@ class OSMExportDialog(QtWidgets.QDialog, FORM_CLASS):
 
         # load the dxf file to the map
         layerDxf = QgsVectorLayer(output_file, out_file_name , "ogr")
+
+        # Set the CRS to utm_zone
+        crs = QgsCoordinateReferenceSystem(f'EPSG:{32600 + utm_zone}')
+        layerDxf.setCrs(crs)
+        
         QgsProject.instance().addMapLayer(layerDxf)
 
         # if result == QgsVectorFileWriter.NoError:
