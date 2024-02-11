@@ -25,6 +25,29 @@
         <string>Export OSM Data</string>
     </property>
   </widget>
+  <widget class="QLineEdit" name="lineEditDXFFileName">
+    <property name="geometry">
+        <rect>
+            <x>30</x>
+            <y>50</y>
+            <width>341</width>
+            <height>25</height>
+        </rect>
+    </property>
+  </widget>
+  <widget class="QPushButton" name="btnSelectDXFFile">
+    <property name="geometry">
+        <rect>
+            <x>30</x>
+            <y>90</y>
+            <width>341</width>
+            <height>25</height>
+        </rect>
+    </property>
+    <property name="text">
+        <string>Enter Output file name (DXF)</string>
+    </property>
+  </widget>
   <widget class="QDialogButtonBox" name="button_box" >
    <property name="geometry" >
     <rect>
@@ -38,7 +61,7 @@
     <enum>Qt::Horizontal</enum>
    </property>
    <property name="standardButtons" >
-    <set>QDialogButtonBox::Cancel|QDialogButtonBox::Ok</set>
+    <set>QDialogButtonBox::Cancel</set>
    </property>
   </widget>
  </widget>

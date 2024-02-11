@@ -26,7 +26,7 @@ import os
 
 from qgis.PyQt import uic
 from qgis.PyQt import QtWidgets
-from qgis.PyQt.QtWidgets import QDialog, QMessageBox, QPushButton
+from qgis.PyQt.QtWidgets import QDialog, QMessageBox, QPushButton, QFileDialog
 from qgis.core import QgsCoordinateTransform, QgsCoordinateReferenceSystem, QgsProject, QgsPointXY, QgsGeometry, QgsFeature, QgsVectorLayer, QgsField, QgsWkbTypes, QgsProcessingFeedback, QgsVectorFileWriter, QgsCoordinateTransformContext
 from PyQt5.QtCore import QVariant
 import requests
@@ -48,8 +48,33 @@ class OSMExportDialog(QtWidgets.QDialog, FORM_CLASS):
 
         # Connect the button click event to the method
         self.btnShowExtent.clicked.connect(self.show_current_extent)
+        self.btnSelectDXFFile.clicked.connect(self.selectDXFFile)
+
+        # Make lineEditDXFFileName read-only
+        self.lineEditDXFFileName.setReadOnly(True)
+
+    def selectDXFFile(self):
+        # Open a file dialog to select the DXF file
+        options = QFileDialog.Options()
+        options |= QFileDialog.DontUseNativeDialog
+        fileName, _ = QFileDialog.getSaveFileName(self, "Select DXF File", "", "DXF Files (*.dxf);;All Files (*)", options=options)
+
+        if fileName:
+            # Set the selected file name in the line edit
+
+            # Add the .dxf extension if not already present
+            if not fileName.endswith(".dxf"):
+                fileName += ".dxf"
+
+            self.lineEditDXFFileName.setText(fileName)
 
     def download_osm_data(self, in_extent):
+
+        if self.lineEditDXFFileName.text() == "":
+            QMessageBox.warning(
+                None, "OSM Data Download", "Please select a DXF file to save the output.", QMessageBox.Ok)
+            return
+
         # Convert the extent to a bounding box string for the Overpass API
         bbox = f"{in_extent.yMinimum()},{in_extent.xMinimum()},{in_extent.yMaximum()},{in_extent.xMaximum()}"
 
@@ -66,7 +91,7 @@ class OSMExportDialog(QtWidgets.QDialog, FORM_CLASS):
         api = overpy.Overpass()
         result = api.query(query)
         # Create a memory layer for ways (lines)
-        way_layer = QgsVectorLayer("LineString?crs=epsg:4326", "Output", "memory")
+        way_layer = QgsVectorLayer("LineString?crs=epsg:4326", "OSM Data", "memory")
         way_prov = way_layer.dataProvider()
         way_layer.updateFields()
         
@@ -111,19 +136,18 @@ class OSMExportDialog(QtWidgets.QDialog, FORM_CLASS):
         # Use the above funtion to dWownload and display OSM data
         osmdata = self.download_osm_data(extent_84)
 
-        way_layer = osmdata["WAY_LAYER"]
+        layer = osmdata["WAY_LAYER"]
+        output_file = self.lineEditDXFFileName.text()
+        
+        # Get file name from the last part of the path
+        out_file_name = os.path.basename(output_file).replace(".dxf", "")
 
-        # Add the layers to the map
-        QgsProject.instance().addMapLayer(osmdata["WAY_LAYER"])
 
-        # Export the way_layer to .dxf file and add it to the map
-        layer_name = "Output"
-        output_file = "D:/temp/output.dxf"
-        layer = QgsProject.instance().mapLayersByName(layer_name)[0] if QgsProject.instance().mapLayersByName(layer_name) else None
+        print('output_file')
+        print(output_file)
 
-        if not layer:
-            print(f"Layer '{layer_name}' not found.")
-            return
+        # Add the layer to the map
+        QgsProject.instance().addMapLayer(layer)
 
         # Set the CRS to utm_zone
         crs = QgsCoordinateReferenceSystem(f'EPSG:{32600 + utm_zone}')
@@ -143,14 +167,15 @@ class OSMExportDialog(QtWidgets.QDialog, FORM_CLASS):
             options=options
         )
 
+        layer_name = layer.name()
         if error[0] == QgsVectorFileWriter.NoError:
             print(f"Layer '{layer_name}' successfully exported to '{output_file}'.")
         else:
             print(f"Failed to export '{layer_name}': {error}")
 
         # load the dxf file to the map
-        layer = QgsVectorLayer(output_file, "Output-dxf", "ogr")
-        QgsProject.instance().addMapLayer(layer)
+        layerDxf = QgsVectorLayer(output_file, out_file_name , "ogr")
+        QgsProject.instance().addMapLayer(layerDxf)
 
         # if result == QgsVectorFileWriter.NoError:
         #     print(f"Layer '{layer_name}' successfully exported to '{output_file}'.")
