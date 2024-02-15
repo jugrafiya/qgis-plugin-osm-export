@@ -93,14 +93,19 @@ class OSMExportDialog(QtWidgets.QDialog, FORM_CLASS):
         # Create a memory layer for ways (lines)
         way_layer = QgsVectorLayer("LineString?crs=epsg:4326", "OSM Data", "memory")
         way_prov = way_layer.dataProvider()
+        # Add fields to the layer
+        way_prov.addAttributes([QgsField("type", QVariant.String)])
         way_layer.updateFields()
+        
         
         # Process ways as lines
         for way in result.ways:
             points = [QgsPointXY(float(node.lon), float(node.lat)) for node in way.nodes]
             feat = QgsFeature()
             feat.setGeometry(QgsGeometry.fromPolylineXY(points))
+            feat.setAttributes([way.tags.get("highway", way.tags.get("leisure", way.tags.get("landuse", way.tags.get("building", way.tags.get("amenity","unknown")).replace("yes", "Built Up Area"))))])
             way_prov.addFeature(feat)
+
             
         return {"WAY_LAYER": way_layer}
 
@@ -160,6 +165,8 @@ class OSMExportDialog(QtWidgets.QDialog, FORM_CLASS):
         # Create a new memory layer for the reprojected ways
         reprojected_way_layer = QgsVectorLayer("LineString?crs=epsg:target_epsg", "Reprojected OSM Data", "memory")
         reprojected_way_prov = reprojected_way_layer.dataProvider()
+        # reprojected_way_prov.addAttributes([QgsField("type", QVariant.String)])
+        # reprojected_way_layer.updateFields()
 
         # Transfer features from the original layer to the new one, transforming their geometry
         for feature in way_layer.getFeatures():
@@ -168,7 +175,6 @@ class OSMExportDialog(QtWidgets.QDialog, FORM_CLASS):
             transformed_geom = feature.geometry()
             transformed_geom.transform(transform)
             new_feat.setGeometry(transformed_geom)
-            # Add the feature to the new layer
             reprojected_way_prov.addFeature(new_feat)
 
         # Add the reprojected layer to the map (optional)
@@ -179,6 +185,12 @@ class OSMExportDialog(QtWidgets.QDialog, FORM_CLASS):
         options.driverName = "DXF"
         options.fileEncoding = "UTF-8"
         options.dstCRS = crs
+        options.layerOptions = [
+        "USE_TITLE_AS_LAYERNAME=NO",  # Do not use the layer title as the DXF layer name
+        "USE_LAYERID_AS_LAYERNAME=NO",  # Do not use the layer ID as the DXF layer name
+        "USE_ATTRIBUTES=YES",  # Export attributes
+        "ATTRIBUTE_LAYER=type"  # Use the 'type' attribute for layer names in the DXF
+        ]
         options.attributes = []
 
         # Perform the export
