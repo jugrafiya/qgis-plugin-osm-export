@@ -131,26 +131,48 @@ class OSMExportDialog(QtWidgets.QDialog, FORM_CLASS):
         transform = QgsCoordinateTransform(map_crs, geo_crs, QgsProject.instance())
         extent_84 = transform.transform(extent)
 
-
         # try:
         # Use the above funtion to dWownload and display OSM data
         osmdata = self.download_osm_data(extent_84)
 
-        layer = osmdata["WAY_LAYER"]
+        way_layer = osmdata["WAY_LAYER"]
         output_file = self.lineEditDXFFileName.text()
         
         # Get file name from the last part of the path
         out_file_name = os.path.basename(output_file).replace(".dxf", "")
 
-
-        print('output_file')
-        print(output_file)
-
         # Add the layer to the map
-        QgsProject.instance().addMapLayer(layer)
+        # QgsProject.instance().addMapLayer(way_layer)
 
         # Set the CRS to utm_zone
         crs = QgsCoordinateReferenceSystem(f'EPSG:{32600 + utm_zone}')
+
+        # Set the desired CRS for the output shapefile
+        output_crs = QgsCoordinateReferenceSystem(f'EPSG:{32600 + utm_zone}')
+
+        # Export the layer to a Shapefile
+        # Create a transform object to convert between EPSG:4326 and target epsg
+        target_epsg = 32600 + utm_zone
+        source_crs = QgsCoordinateReferenceSystem(4326)
+        target_crs = QgsCoordinateReferenceSystem(target_epsg)
+        transform = QgsCoordinateTransform(source_crs, target_crs, QgsCoordinateTransformContext())
+
+        # Create a new memory layer for the reprojected ways
+        reprojected_way_layer = QgsVectorLayer("LineString?crs=epsg:target_epsg", "Reprojected OSM Data", "memory")
+        reprojected_way_prov = reprojected_way_layer.dataProvider()
+
+        # Transfer features from the original layer to the new one, transforming their geometry
+        for feature in way_layer.getFeatures():
+            new_feat = QgsFeature(reprojected_way_prov.fields())
+            # Transform the geometry
+            transformed_geom = feature.geometry()
+            transformed_geom.transform(transform)
+            new_feat.setGeometry(transformed_geom)
+            # Add the feature to the new layer
+            reprojected_way_prov.addFeature(new_feat)
+
+        # Add the reprojected layer to the map (optional)
+        # QgsProject.instance().addMapLayer(reprojected_way_layer)
 
         # Set the options for the DXF export
         options = QgsVectorFileWriter.SaveVectorOptions()
@@ -161,13 +183,13 @@ class OSMExportDialog(QtWidgets.QDialog, FORM_CLASS):
 
         # Perform the export
         error = QgsVectorFileWriter.writeAsVectorFormatV3(
-            layer=layer,
+            layer=reprojected_way_layer,
             fileName=output_file,
             transformContext=QgsProject.instance().transformContext(),
             options=options
         )
 
-        layer_name = layer.name()
+        layer_name = way_layer.name()
         if error[0] == QgsVectorFileWriter.NoError:
             print(f"Layer '{layer_name}' successfully exported to '{output_file}'.")
         else:
