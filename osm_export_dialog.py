@@ -165,16 +165,18 @@ class OSMExportDialog(QtWidgets.QDialog, FORM_CLASS):
         # Create a new memory layer for the reprojected ways
         reprojected_way_layer = QgsVectorLayer("LineString?crs=epsg:target_epsg", "Reprojected OSM Data", "memory")
         reprojected_way_prov = reprojected_way_layer.dataProvider()
-        # reprojected_way_prov.addAttributes([QgsField("type", QVariant.String)])
-        # reprojected_way_layer.updateFields()
+        reprojected_way_prov.addAttributes([QgsField("Layer", QVariant.String)])
+        reprojected_way_layer.updateFields()
 
         # Transfer features from the original layer to the new one, transforming their geometry
         for feature in way_layer.getFeatures():
+            type_value = feature['type']
             new_feat = QgsFeature(reprojected_way_prov.fields())
             # Transform the geometry
             transformed_geom = feature.geometry()
             transformed_geom.transform(transform)
             new_feat.setGeometry(transformed_geom)
+            new_feat['Layer'] = type_value
             reprojected_way_prov.addFeature(new_feat)
 
         # Add the reprojected layer to the map (optional)
@@ -189,7 +191,7 @@ class OSMExportDialog(QtWidgets.QDialog, FORM_CLASS):
         "USE_TITLE_AS_LAYERNAME=NO",  # Do not use the layer title as the DXF layer name
         "USE_LAYERID_AS_LAYERNAME=NO",  # Do not use the layer ID as the DXF layer name
         "USE_ATTRIBUTES=YES",  # Export attributes
-        "ATTRIBUTE_LAYER=type"  # Use the 'type' attribute for layer names in the DXF
+        "ATTRIBUTE_LAYER=Layer"  # Use the 'type' attribute for layer names in the DXF
         ]
         options.attributes = []
 
